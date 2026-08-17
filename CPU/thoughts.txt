@@ -1,0 +1,301 @@
+so like this. You have the standard processor in the center of the chip, then to the left you have a quantum computer connected to the left half cpu state, then another quantum computer that is connected to the right half cpu state like such.
+
+Yes. Interpreting your new drawing, you're proposing something more specific than simply putting a QPU next to a CPU.
+
+You have three physical compute modules, with the center classical processor acting as the authoritative classical state:
+
+       QUANTUM A                 CPU                  QUANTUM B
+     ┌────────────┐        ┌──────────────┐        ┌────────────┐
+     │            │        │              │        │            │
+     │    QPU-A   │◄══════►│ LEFT | RIGHT │◄══════►│   QPU-B    │
+     │            │        │STATE | STATE │        │            │
+     └────────────┘        └──────────────┘        └────────────┘
+          ▲                       ▲                      ▲
+          │                       │                      │
+          └══════ photonic / crystalline fabric ═══════┘
+
+So conceptually:
+
+Q
+A
+	​
+
+↔C
+L
+	​
+
+
+and
+
+C
+R
+	​
+
+↔Q
+B
+	​
+
+
+where C
+L
+	​
+
+ and C
+R
+	​
+
+ are logical partitions of the classical processor's workload/state, rather than literally cutting a CPU's physical state in half.
+
+That distinction makes your architecture much more plausible.
+
+What the two quantum processors could actually do
+
+The CPU could decompose a problem into two quantum-suitable subproblems. QPU-A operates on one problem/state representation while QPU-B independently operates on another. Their measurement results return to the CPU, which combines them and determines the next iteration.
+
+You essentially get:
+
+C
+0
+	​
+
+→{
+Q
+A
+	​
+
+(C
+L
+	​
+
+)
+Q
+B
+	​
+
+(C
+R
+	​
+
+)
+	​
+
+→C
+1
+	​
+
+→{
+Q
+A
+	​
+
+(C
+L
+′
+	​
+
+)
+Q
+B
+	​
+
+(C
+R
+′
+	​
+
+)
+	​
+
+→C
+2
+	​
+
+…
+
+That is a heterogeneous iterative computation architecture.
+
+The CPU remains excellent at branching, memory management, operating-system functions and deterministic calculations. The QPUs only receive calculations where quantum algorithms potentially provide an advantage.
+
+Your external lines matter, too
+
+Your drawing appears to show both direct neighboring connections and longer connections extending across the modules.
+
+That opens up a second level of the design:
+
+                   CLASSICAL CONTROL
+        ┌══════════════════════════════════┐
+        ▼                                  ▼
+     QPU-A              CPU              QPU-B
+       ║                 ║                  ║
+       ╚════════ PHOTONIC FABRIC ══════════╝
+                         +
+       QPU-A ═════ quantum link ═════ QPU-B
+
+Now you've potentially got three communication classes.
+
+CPU ↔ QPU classical channels — instructions, parameters and measurement results.
+CPU/QPU optical channels — high-bandwidth classical traffic through the crystalline photonic substrate.
+QPU ↔ QPU quantum channels — potentially distributing photons/entanglement between quantum modules.
+
+Number 3 is where this gets considerably more ambitious.
+
+If QPU-A and QPU-B are only classical accelerators from one another's perspective, you essentially have two quantum coprocessors.
+
+But if you can establish a coherent quantum link between them, you're attempting a distributed/modular quantum processor.
+
+Instead of:
+
+Q
+A
+	​
+
++Q
+B
+	​
+
+
+you want, under the right conditions:
+
+Q
+A
+	​
+
+⊗Q
+B
+	​
+
+
+with entanglement providing operations across the modules.
+
+That's substantially more difficult—but also substantially more interesting.
+
+There's one thing I would change in your terminology
+
+Don't call them the left and right halves of CPU state in the technical paper.
+
+A conventional CPU state—registers, cache, memory mappings, execution state, etc.—cannot simply be converted wholesale into quantum state. And quantum measurement doesn't give you arbitrary access to the complete internal quantum state.
+
+I'd call them:
+
+Classical State Partition A
+and
+Classical State Partition B
+
+or, even better:
+
+Quantum Work Domain A
+Quantum Work Domain B
+
+Then your CPU scheduler performs:
+
+Classical workload→problem decomposition→{W
+A
+	​
+
+,W
+B
+	​
+
+}
+
+followed by
+
+W
+A
+	​
+
+→QPU
+A
+	​
+
+W
+B
+	​
+
+→QPU
+B
+	​
+
+
+and finally:
+
+M(QPU
+A
+	​
+
+)+M(QPU
+B
+	​
+
+)→CPU→classical result.
+
+That is technically defensible.
+
+And then your architecture scales beautifully
+
+Three modules are just the smallest interesting topology.
+
+You could eventually have:
+
+ QPU-1       QPU-2
+    ╲         ╱
+     ╲       ╱
+      ╲     ╱
+   ┌─────────────┐
+   │ CLASSICAL   │
+   │ PROCESSOR   │
+   │ + SCHEDULER │
+   └─────────────┘
+      ╱   │   ╲
+     ╱    │    ╲
+ QPU-3  GPU/AI  QPU-4
+
+
+ ═══════════════════
+  PHOTONIC SUBSTRATE
+ ═══════════════════
+
+And the scheduler could dynamically decide:
+
+W
+1
+	​
+
+→CPU
+W
+2
+	​
+
+→GPU
+W
+3
+	​
+
+→QPU
+1
+	​
+
+W
+4
+	​
+
+→QPU
+2
+	​
+
++QPU
+3
+	​
+
+
+depending upon which computational resource is appropriate.
+
+That starts looking less like a conventional CPU with quantum accessories and more like a heterogeneous compute fabric where classical processors orchestrate a network of quantum processors.
+
+The crystal substrate then has a very specific reason to exist: it provides the high-bandwidth classical optical network and, if the chosen qubit technology permits it, potentially the photonic quantum-interconnect network.
+
+The key research question becomes particularly sharp:
+
+Can a classical processor dynamically partition a workload across multiple photonic-interconnected quantum processing modules while maintaining sufficiently low communication latency—and can the same substrate eventually provide coherent quantum links between those modules?
+
+That is a much stronger POC thesis than simply "put qubits in crystal."
