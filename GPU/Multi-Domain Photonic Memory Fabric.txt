@@ -1,0 +1,1431 @@
+Radial Multi-Domain Photonic Memory Fabric
+Proof-of-Concept Architecture for Split VRAM Domains with Central Parallel Memory Aggregation
+
+Document Type: Technical White Paper / Proof of Concept
+Working Name: Radial Multi-Domain Photonic Memory Fabric (RMPMF)
+Architecture Class: GPU Memory / VRAM / Multi-Port Memory / Photonic Interconnect
+Revision: Concept 1.0
+
+Abstract
+
+This paper proposes a memory architecture consisting of four independently addressable peripheral VRAM modules surrounding a central shared memory and controller fabric.
+
+Each peripheral memory module is logically divided into two independently addressable memory regions. These regions may be connected through separate electrical or photonic communication channels, producing up to eight logical memory paths across four physical memory modules.
+
+At the center of the architecture is a Central Memory Fabric Controller (CMFC). Rather than functioning as conventional RAM alone, the CMFC provides multi-channel memory control, buffering, caching, arbitration, aggregation, synchronization, and external data output.
+
+The architecture is intended to permit multiple memory regions to be read or written concurrently:
+
+R
+1
+	​
+
+∥R
+2
+	​
+
+∥R
+3
+	​
+
+∥R
+4
+	​
+
+
+and potentially:
+
+R
+1L
+	​
+
+∥R
+1R
+	​
+
+∥R
+2L
+	​
+
+∥R
+2R
+	​
+
+∥R
+3L
+	​
+
+∥R
+3R
+	​
+
+∥R
+4L
+	​
+
+∥R
+4R
+	​
+
+
+The central research question is whether independently serviced memory domains, combined through a sufficiently wide central aggregation fabric, can provide greater effective memory bandwidth and concurrency than an equivalent architecture in which the same memory resources contend for a smaller number of shared paths.
+
+A later implementation introduces substrate-integrated photonic channels and wavelength-division multiplexing to investigate whether optical communication can improve interconnect density, routing scalability, or energy efficiency.
+
+The fundamental principle is:
+
+Memory parallelism should extend from the physical memory devices through the interconnect and into the controller, rather than collapsing into a serial bottleneck before reaching the processor.
+
+1. Architecture Overview
+
+The proposed architecture consists of five major components:
+
+Peripheral Memory Module 1
+Peripheral Memory Module 2
+Peripheral Memory Module 3
+Peripheral Memory Module 4
+Central Memory Fabric Controller
+
+Conceptually:
+
+        MEMORY MODULE 1           MEMORY MODULE 2
+        ┌──────────────┐          ┌──────────────┐
+        │ Left │ Right │          │ Left │ Right │
+        └──┬───┴───┬───┘          └──┬───┴───┬───┘
+           │       │                 │       │
+           └────┐  │                 │  ┌────┘
+                ▼  ▼                 ▼  ▼
+          ┌───────────────────────────────┐
+          │                               │
+          │ CENTRAL MEMORY FABRIC         │
+          │ CONTROLLER                    │
+          │                               │
+          │ Multi-Port Controller         │
+          │ Shared Cache / Buffer         │
+          │ Scheduler / Crossbar          │
+          │ Aggregation Engine            │
+          │                               │
+          └───────────────────────────────┘
+                ▲  ▲                 ▲  ▲
+           ┌────┘  │                 │  └────┐
+           │       │                 │       │
+        ┌──┴───┬───┴──┐          ┌──┴───┬───┴──┐
+        │ Left │ Right │          │ Left │ Right │
+        └──────────────┘          └──────────────┘
+        MEMORY MODULE 3           MEMORY MODULE 4
+
+The geometry shown in the conceptual drawing is radial, but the architecture does not require the final hardware to use this exact physical layout.
+
+The important property is the existence of independent communication domains feeding a common parallel aggregation fabric.
+
+2. Split Peripheral Memory Modules
+
+Each peripheral memory module contains two logical memory domains:
+
+M
+i
+	​
+
+={M
+iA
+	​
+
+,M
+iB
+	​
+
+}
+
+For four modules:
+
+M
+1
+	​
+
+={M
+1A
+	​
+
+,M
+1B
+	​
+
+}
+M
+2
+	​
+
+={M
+2A
+	​
+
+,M
+2B
+	​
+
+}
+M
+3
+	​
+
+={M
+3A
+	​
+
+,M
+3B
+	​
+
+}
+M
+4
+	​
+
+={M
+4A
+	​
+
+,M
+4B
+	​
+
+}
+
+This produces eight logical memory domains:
+
+N
+domains
+	​
+
+=4×2=8
+
+Each domain should ideally possess an independently schedulable communication path.
+
+3. Central Memory Fabric Controller
+
+The center component is the critical architectural element.
+
+Calling it simply "RAM" understates its function.
+
+The proposed Central Memory Fabric Controller contains:
+
+                CENTRAL MEMORY FABRIC
+
+
+        ┌─────────────────────────────┐
+M1-A ──►│ RX/TX Port 1                │
+M1-B ──►│ RX/TX Port 2                │
+M2-A ──►│ RX/TX Port 3                │
+M2-B ──►│ RX/TX Port 4                │
+M3-A ──►│ RX/TX Port 5                │
+M3-B ──►│ RX/TX Port 6                │
+M4-A ──►│ RX/TX Port 7                │
+M4-B ──►│ RX/TX Port 8                │
+        │            │                │
+        │            ▼                │
+        │     INPUT QUEUES            │
+        │            │                │
+        │            ▼                │
+        │     PARALLEL CROSSBAR       │
+        │            │                │
+        │            ▼                │
+        │   CACHE / SHARED MEMORY     │
+        │            │                │
+        │            ▼                │
+        │   AGGREGATION / REDUCTION   │
+        │            │                │
+        │            ▼                │
+        │       OUTPUT FABRIC         │
+        └────────────┬────────────────┘
+                     │
+                     ▼
+                CPU / GPU / SoC
+
+The CMFC is therefore simultaneously a:
+
+memory controller,
+memory switch,
+shared cache,
+traffic scheduler,
+synchronization point,
+aggregation engine,
+and processor-facing memory interface.
+4. Fundamental Concurrency Model
+
+A conventional bottlenecked architecture can behave approximately like:
+
+R
+1
+	​
+
+→R
+2
+	​
+
+→R
+3
+	​
+
+→R
+4
+	​
+
+
+The proposed architecture attempts to permit:
+
+R
+1
+	​
+
+∥R
+2
+	​
+
+∥R
+3
+	​
+
+∥R
+4
+	​
+
+
+The split-domain implementation potentially extends this to:
+
+R
+1A
+	​
+
+∥R
+1B
+	​
+
+∥R
+2A
+	​
+
+∥R
+2B
+	​
+
+∥R
+3A
+	​
+
+∥R
+3B
+	​
+
+∥R
+4A
+	​
+
+∥R
+4B
+	​
+
+
+This does not mean eight accesses will automatically produce eight times the application performance.
+
+It means the architecture provides eight potential independently serviceable traffic domains.
+
+5. Bandwidth Model
+
+If each memory module provides bandwidth B, ideal aggregate bandwidth is:
+
+B
+aggregate
+	​
+
+=4B
+
+If each half-domain independently provides bandwidth b:
+
+B
+aggregate
+	​
+
+=8b
+
+For example, eight independent channels each sustaining 100 GB/s would theoretically produce:
+
+8(100)=800 GB/s
+
+of aggregate memory traffic.
+
+However, this only remains useful if the central controller can accept approximately the same amount of traffic.
+
+Therefore:
+
+B
+CMFC
+	​
+
+≥
+i=1
+∑
+N
+	​
+
+B
+i
+	​
+
+
+is the ideal non-blocking condition.
+
+If:
+
+B
+CMFC
+	​
+
+≪∑B
+i
+	​
+
+
+the central fabric becomes the system bottleneck.
+
+6. Avoiding the Central Bottleneck
+
+This is the central engineering challenge of the POC.
+
+The system should not construct eight high-speed memory channels and then funnel them through one narrow bus.
+
+Instead, the CMFC requires multiple independent internal paths.
+
+For example:
+
+M1 ─────► Queue ───┐
+M2 ─────► Queue ───┤
+M3 ─────► Queue ───┤
+M4 ─────► Queue ───┼──► PARALLEL CROSSBAR
+M5 ─────► Queue ───┤           │
+M6 ─────► Queue ───┤           ▼
+M7 ─────► Queue ───┤       SHARED CACHE
+M8 ─────► Queue ───┘           │
+                               ▼
+                        MULTIPLE OUTPUTS
+
+The controller should therefore be designed around a crossbar, switched fabric, or comparable parallel topology, not a single serial datapath.
+
+7. Central RAM / Cache
+
+The original center-memory concept remains valuable.
+
+Local high-speed memory inside the CMFC could function as a shared cache or staging area.
+
+The hierarchy becomes:
+
+Peripheral Memory↔Central Shared Memory↔Processor
+
+Frequently shared information could reside centrally.
+
+Domain-specific information remains in peripheral memory.
+
+This reduces unnecessary duplication and cross-domain traffic.
+
+8. Memory Operating Modes
+
+The architecture could support several modes.
+
+Mode A — Independent
+
+Each module stores an independent workload:
+
+M1 → Workload A
+M2 → Workload B
+M3 → Workload C
+M4 → Workload D
+
+All four execute independently.
+
+Mode B — Striped
+
+One dataset is distributed across the memory domains:
+
+D=D
+1
+	​
+
++D
+2
+	​
+
++D
+3
+	​
+
++D
+4
+	​
+
+
+Parallel reads reconstruct a larger block.
+
+This resembles storage striping conceptually, except at memory speeds.
+
+Mode C — Split-Domain
+
+Each physical memory module performs two simultaneous logical operations:
+
+Module 1:
+ A → Stream 1
+ B → Stream 2
+Mode D — Mirrored
+
+Two or more domains maintain duplicate data:
+
+M
+1
+	​
+
+=M
+2
+	​
+
+
+This could provide redundancy or alternate read paths.
+
+Mode E — Shared Aggregation
+
+Each memory domain produces part of a result:
+
+R=F(R
+1
+	​
+
+,R
+2
+	​
+
+,R
+3
+	​
+
+,R
+4
+	​
+
+)
+
+The CMFC combines the partial results.
+
+9. Aggregation Engine
+
+An optional but potentially important component is a small processing engine inside the central controller.
+
+Instead of transmitting every partial result upstream, the CMFC could perform simple operations such as:
+
+reductions,
+comparisons,
+summation,
+address translation,
+data packing,
+stream merging,
+synchronization,
+and potentially limited tensor/data transformations.
+
+For example:
+
+R
+1
+	​
+
++R
+2
+	​
+
++R
+3
+	​
+
++R
+4
+	​
+
+→R
+
+could occur inside the memory fabric.
+
+This introduces a limited form of near-memory processing.
+
+10. Photonic Interconnect Layer
+
+The electrical POC should come first.
+
+A subsequent implementation introduces optical communication between the peripheral memory domains and CMFC.
+
+Conceptually:
+
+Memory 1 ═════ λ1 ═══╗
+Memory 2 ═════ λ2 ═══╣
+Memory 3 ═════ λ3 ═══╬══► CMFC
+Memory 4 ═════ λ4 ═══╝
+
+The split-domain architecture could use:
+
+λ1 → M1-A
+λ2 → M1-B
+
+
+λ3 → M2-A
+λ4 → M2-B
+
+
+λ5 → M3-A
+λ6 → M3-B
+
+
+λ7 → M4-A
+λ8 → M4-B
+
+These do not necessarily require eight separate physical waveguides.
+
+11. Wavelength-Division Multiplexing
+
+Multiple wavelengths could potentially coexist within shared optical infrastructure:
+
+λ
+1
+	​
+
++λ
+2
+	​
+
++⋯+λ
+8
+	​
+
+
+Conceptually:
+
+M1-A ─ λ1 ─┐
+M1-B ─ λ2 ─┤
+M2-A ─ λ3 ─┤
+M2-B ─ λ4 ─┤
+M3-A ─ λ5 ─┼═══ PHOTONIC FABRIC ═══► CMFC
+M3-B ─ λ6 ─┤
+M4-A ─ λ7 ─┤
+M4-B ─ λ8 ─┘
+
+The CMFC would contain wavelength-selective receivers or demultiplexing infrastructure.
+
+This could reduce physical routing requirements while preserving multiple logical communication channels.
+
+12. Hybrid Electrical/Optical Architecture
+
+The architecture should not assume photons are preferable for every connection.
+
+A more realistic design uses:
+
+Electrical interconnects for short, extremely latency-sensitive local communication.
+
+Optical interconnects where bandwidth density, distance, fan-out, or routing complexity makes photonics advantageous.
+
+Thus:
+
+Architecture=Electrical
+local
+	​
+
++Photonic
+fabric
+	​
+
+
+rather than attempting an entirely optical memory system.
+
+13. Read Operation
+
+A striped read could operate as follows.
+
+The processor requests address range D.
+
+The CMFC determines:
+
+D=D
+1
+	​
+
++D
+2
+	​
+
++D
+3
+	​
+
++D
+4
+	​
+
+
+It issues four simultaneous requests:
+
+          REQUEST D
+              │
+              ▼
+             CMFC
+       ┌──────┼──────┐
+       │      │      │
+       ▼      ▼      ▼
+      M1     M2     M3     M4
+       │      │      │      │
+       ▼      ▼      ▼      ▼
+      D1     D2     D3     D4
+       │      │      │      │
+       └──────┴──┬───┴──────┘
+                 ▼
+            REASSEMBLY
+                 │
+                 ▼
+              OUTPUT
+
+The important operation is simultaneous memory servicing.
+
+14. Write Operation
+
+Writes can similarly be distributed.
+
+For a striped configuration:
+
+D→{D
+1
+	​
+
+,D
+2
+	​
+
+,D
+3
+	​
+
+,D
+4
+	​
+
+}
+
+and:
+
+                 DATA
+                  │
+                  ▼
+                 CMFC
+             /    |    \
+            /     |     \
+           ▼      ▼      ▼
+          M1     M2     M3     M4
+
+The controller determines memory placement.
+
+15. Memory Addressing
+
+The processor should ideally see one logical address space.
+
+For example:
+
+0x0000→M1
+0x1000→M2
+0x2000→M3
+0x3000→M4
+
+or addresses could be striped at finer granularity.
+
+The CMFC performs the translation:
+
+LogicalAddress→(Module,Domain,PhysicalAddress)
+
+This hides the underlying topology from software when desired.
+
+16. Domain-Aware Mode
+
+Advanced software could instead explicitly control memory placement.
+
+Conceptually:
+
+allocate(domain_1, data_A)
+allocate(domain_2, data_B)
+allocate(domain_3, data_C)
+allocate(domain_4, data_D)
+
+
+parallel_read(all_domains)
+
+This would allow AI, graphics, or scientific software to deliberately maximize locality.
+
+17. Proposed Physical Layer Stack
+
+A future implementation could contain:
+
+┌─────────────────────────────────────┐
+│        MEMORY / VRAM DIES           │
+├─────────────────────────────────────┤
+│     ELECTRO-OPTICAL INTERFACE       │
+├─────────────────────────────────────┤
+│     PHOTONIC / CRYSTAL LAYER        │
+├─────────────────────────────────────┤
+│       ELECTRICAL INTERPOSER         │
+├─────────────────────────────────────┤
+│   POWER / CLOCK / CONTROL LAYER     │
+└─────────────────────────────────────┘
+
+The "crystal" should therefore be considered an engineered optical layer rather than merely a transparent enclosure.
+
+18. Proof-of-Concept Stage 0 — Simulation
+
+The first implementation should be software-only.
+
+Model:
+
+eight memory domains,
+independent bandwidth limits,
+independent queues,
+central crossbar,
+central cache,
+output bandwidth,
+access latency,
+contention,
+and synchronization.
+
+The simulator should answer:
+
+At what central-fabric bandwidth does additional peripheral memory bandwidth stop producing performance gains?
+
+This gives a target for the hardware controller.
+
+19. POC Stage 1 — FPGA Memory Fabric
+
+A practical prototype could use FPGA hardware to represent the central controller.
+
+Memory A ───┐
+Memory B ───┤
+Memory C ───┼──► FPGA CMFC ───► Host
+Memory D ───┘
+
+The FPGA implements:
+
+independent memory queues,
+arbitration,
+striping,
+address mapping,
+aggregation,
+and instrumentation.
+
+This establishes the architecture without requiring custom silicon.
+
+20. POC Stage 2 — Split Memory Domains
+
+Each peripheral module is divided into two independently addressable channels.
+
+M1-A ─┐
+M1-B ─┤
+M2-A ─┤
+M2-B ─┤
+M3-A ─┼──► FPGA CMFC
+M3-B ─┤
+M4-A ─┤
+M4-B ─┘
+
+The experiment tests whether all eight channels can remain active concurrently.
+
+21. POC Stage 3 — Parallel Aggregation
+
+The CMFC receives simultaneous streams:
+
+S
+1
+	​
+
+,…,S
+8
+	​
+
+
+and produces:
+
+O=F(S
+1
+	​
+
+,…,S
+8
+	​
+
+)
+
+Tests should include simple concatenation, striped reconstruction and numerical reductions.
+
+The objective is to determine whether aggregation itself becomes the bottleneck.
+
+22. POC Stage 4 — Optical Links
+
+One or more electrical memory-fabric paths are replaced with optical links.
+
+Compare:
+
+Electrical Link
+
+against:
+
+Optical Link
+
+under identical traffic.
+
+Measure:
+
+throughput,
+latency,
+energy/bit,
+error rate,
+temperature,
+and physical routing density.
+
+No photonic advantage should be assumed beforehand.
+
+23. POC Stage 5 — Multi-Wavelength Fabric
+
+The next prototype introduces multiple wavelength channels.
+
+For example:
+
+λ1 ─── Stream 1
+λ2 ─── Stream 2
+λ3 ─── Stream 3
+λ4 ─── Stream 4
+           │
+           ▼
+      SAME OPTICAL PATH
+           │
+           ▼
+      DEMULTIPLEXER
+       /  /  \  \
+      S1 S2  S3 S4
+
+This tests the proposition that several memory traffic channels can coexist on shared photonic infrastructure.
+
+24. POC Stage 6 — Integrated Memory Fabric
+
+The final research prototype integrates:
+
+multiple memory chiplets,
+a central controller,
+shared cache,
+electrical control,
+photonic communication,
+and processor-facing output.
+
+Conceptually:
+
+                    CPU / GPU
+                       ▲
+                       │
+                 ┌─────┴─────┐
+                 │   CMFC    │
+                 └─────┬─────┘
+                       │
+             PHOTONIC / ELECTRICAL
+                  MEMORY FABRIC
+              ╱      │      │      ╲
+             ▼       ▼      ▼       ▼
+           MEM-1   MEM-2  MEM-3   MEM-4
+25. Benchmark Matrix
+
+The prototype should compare four architectures:
+
+Architecture	Domains	Central Fabric	Purpose
+Baseline	1	Electrical	Reference
+Multi-channel	4	Electrical	Test parallel memory
+Split-domain	8	Electrical	Test increased concurrency
+Split photonic	8	Hybrid optical/electrical	Test photonic fabric
+
+This separation is important because simply increasing the number of memory channels can already increase bandwidth.
+
+The POC must determine what additional benefit, if any, comes specifically from the proposed photonic architecture.
+
+26. Performance Metrics
+
+The prototype should measure:
+
+Metric	Unit
+Per-domain bandwidth	GB/s
+Aggregate bandwidth	GB/s
+Read latency	ns
+Write latency	ns
+Central-fabric utilization	%
+Queue depth	requests
+Cross-domain contention	%
+Cache hit rate	%
+Optical link bandwidth	Gb/s
+Optical loss	dB
+Bit-error rate	BER
+Energy per bit	pJ/bit
+Controller power	W
+Total system power	W
+Temperature	°C
+27. Scaling Efficiency
+
+A useful POC metric is:
+
+E
+N
+	​
+
+=
+NB
+1
+	​
+
+B
+N
+	​
+
+	​
+
+
+where:
+
+B
+1
+	​
+
+ = bandwidth of one domain,
+B
+N
+	​
+
+ = measured bandwidth with N active domains.
+
+An ideal system approaches:
+
+E
+N
+	​
+
+=1
+
+If eight channels theoretically provide 800 GB/s but measurements produce 600 GB/s:
+
+E
+8
+	​
+
+=
+800
+600
+	​
+
+=0.75
+
+or 75% scaling efficiency.
+
+That gives the architecture a clear, falsifiable performance target.
+
+28. Central Fabric Saturation Test
+
+One particularly important experiment should progressively activate domains:
+
+1 domain
+   ↓
+2 domains
+   ↓
+3 domains
+   ↓
+4 domains
+   ↓
+6 domains
+   ↓
+8 domains
+
+Plot:
+
+ActiveDomainsvs.AggregateBandwidth
+
+Ideally bandwidth initially increases approximately linearly.
+
+The point where the curve begins flattening identifies the system bottleneck.
+
+That bottleneck could be:
+
+peripheral memory,
+controller ports,
+crossbar,
+shared cache,
+optical links,
+processor-facing interface,
+or the processor itself.
+29. Latency vs. Bandwidth
+
+The architecture should not optimize bandwidth while ignoring latency.
+
+A central aggregation fabric adds processing stages:
+
+Memory→Link→Queue→Crossbar→Cache→Output
+
+Therefore:
+
+L
+total
+	​
+
+=L
+memory
+	​
+
++L
+link
+	​
+
++L
+queue
+	​
+
++L
+fabric
+	​
+
++L
+output
+	​
+
+
+Some applications may prefer lower bandwidth with lower latency.
+
+The controller should therefore support bypass paths for latency-sensitive operations where practical.
+
+30. Potential GPU Application
+
+For a GPU:
+
+MEM-1 → Texture/Data Partition A
+MEM-2 → Texture/Data Partition B
+MEM-3 → Geometry/Tensor Partition C
+MEM-4 → Geometry/Tensor Partition D
+
+The CMFC could feed separate GPU compute clusters concurrently.
+
+Instead of:
+
+Memory → GPU
+
+the architecture becomes:
+
+MEM-1 ─► GPU Cluster 1
+MEM-2 ─► GPU Cluster 2
+MEM-3 ─► GPU Cluster 3
+MEM-4 ─► GPU Cluster 4
+             │
+             ▼
+        Shared GPU Fabric
+
+This connects directly with the earlier Dual-Domain Photonic VRAM architecture.
+
+31. Potential AI Application
+
+Large tensors could be partitioned:
+
+T=T
+1
+	​
+
++T
+2
+	​
+
++T
+3
+	​
+
++T
+4
+	​
+
+
+and independently streamed into compute resources.
+
+The central controller could coordinate transfers while the accelerator performs parallel tensor operations.
+
+The architecture could therefore investigate whether memory-fabric parallelism improves accelerator utilization for memory-bound AI workloads.
+
+32. Fault Tolerance
+
+Multiple memory domains introduce an additional possibility.
+
+The CMFC could detect a failed or degraded channel and reroute around it.
+
+For example:
+
+M1 ✓
+M2 ✓
+M3 ✕
+M4 ✓
+
+
+M3 traffic → remap → M1/M2/M4
+
+With sufficient spare capacity, the architecture could degrade gracefully rather than failing completely.
+
+33. Thermal Considerations
+
+The radial geometry could have an advantage over simply stacking every memory die vertically.
+
+Peripheral modules can potentially have independent thermal paths.
+
+MEM-1          MEM-2
+  ↑              ↑
+ cooling        cooling
+
+
+       CMFC
+        ↑
+      cooling
+
+
+MEM-3          MEM-4
+  ↑              ↑
+ cooling        cooling
+
+However, optical transmitters, receivers and the central controller also generate heat.
+
+Thermal behavior must therefore be measured as part of the POC rather than assumed.
+
+34. Key Engineering Risks
+
+The major risks include:
+
+CMFC bandwidth saturation,
+memory-controller complexity,
+cache coherence overhead,
+increased latency,
+optical conversion overhead,
+photonic alignment,
+wavelength stability,
+thermal drift,
+optical crosstalk,
+manufacturing complexity,
+packaging cost,
+and software scheduling complexity.
+
+Most importantly, conventional multi-channel electrical memory may outperform photonics at short package distances.
+
+That possibility should be explicitly tested.
+
+35. Success Criteria
+
+The first-generation POC succeeds if it demonstrates:
+
+four independently addressable memory modules;
+split logical domains;
+simultaneous memory reads;
+simultaneous memory writes;
+parallel operation without forced serialization;
+correct aggregation of returned data;
+measurable scaling as additional domains are activated;
+a central controller capable of sustaining a substantial fraction of aggregate peripheral bandwidth.
+
+The photonic extension succeeds if it additionally demonstrates:
+
+simultaneous optical data channels;
+reliable wavelength separation;
+acceptable BER and crosstalk;
+competitive bandwidth density;
+measurable power/latency characteristics.
+36. What the POC Must Prove
+
+The POC should not attempt to prove that photonic memory is universally faster than conventional VRAM.
+
+It should test three narrower hypotheses.
+
+Hypothesis 1 — Domain Parallelism
+
+Independent memory domains increase aggregate bandwidth when workloads can access them concurrently.
+
+Hypothesis 2 — Parallel Aggregation
+
+A sufficiently wide central fabric can collect multiple memory streams without eliminating the bandwidth gained at the peripheral domains.
+
+Hypothesis 3 — Photonic Scaling
+
+Optical channels can become useful when electrical routing density, distance, fan-out, or aggregate bandwidth makes conventional connections increasingly difficult.
+
+Each hypothesis can be tested independently.
+
+37. Evolution of the Architecture
+
+The development path therefore becomes:
+
+4 Memory Modules
+	​
+
+↓
+8 Logical Domains
+	​
+
+↓
+Parallel Central Memory Fabric
+	​
+
+↓
+Shared Cache/Aggregation
+	​
+
+↓
+Photonic Interconnect
+	​
+
+↓
+Wavelength Multiplexing
+	​
+
+↓
+Scalable Multi-Domain Memory Fabric
+	​
+
+38. Long-Term Architecture
+
+The four-module prototype does not have to be the limit.
+
+The general architecture is:
+
+M={M
+1
+	​
+
+,M
+2
+	​
+
+,…,M
+N
+	​
+
+}
+
+connected to:
+
+CMFC
+
+through:
+
+C={C
+1
+	​
+
+,C
+2
+	​
+
+,…,C
+N
+	​
+
+}
+
+independent logical channels.
+
+Future implementations could contain 8, 16, or more memory chiplets distributed around one or several hierarchical fabric controllers.
+
+At larger scales, the topology could evolve from one central hub into multiple interconnected hubs:
+
+MEM MEM              MEM MEM
+ \   /                \   /
+ CMFC-A ════════════ CMFC-B
+   ╲                    ╱
+    ╲                  ╱
+      SYSTEM FABRIC
+           │
+           ▼
+       CPU / GPU
+
+This avoids requiring one controller to scale indefinitely.
+
+39. Proposed Name
+
+A useful formal name for the architecture is:
+
+Radial Multi-Domain Photonic Memory Fabric
+
+RMPMF
+
+The individual components become:
+
+PMD — Peripheral Memory Domain
+
+and
+
+CMFC — Central Memory Fabric Controller
+
+The optical implementation becomes:
+
+PML — Photonic Memory Link
+
+That gives the architecture a consistent vocabulary:
+
+PMD
+PML
+	​
+
+CMFC
+40. Primary POC Thesis
+
+A memory subsystem composed of multiple independently addressable split memory domains can increase aggregate memory concurrency when those domains communicate through a parallel central memory fabric capable of simultaneously scheduling, buffering, aggregating, and forwarding their data. A substrate-integrated photonic interconnect can subsequently be evaluated as a method for scaling those parallel channels without proportionally increasing electrical routing complexity.
+
+Conclusion
+
+The Radial Multi-Domain Photonic Memory Fabric changes the memory architecture from:
+
+Memory→Controller→Processor
+
+into:
+
+M
+1
+	​
+
+↓
+\multicolumn4cParallel Memory Fabric
+	​
+
+M
+2
+	​
+
+↓
+↓
+Processor
+	​
+
+M
+3
+	​
+
+↓
+M
+4
+	​
+
+↓
+
+The essential innovation is not simply surrounding RAM with additional VRAM.
+
+It is preserving parallelism through the entire memory path.
+
+The peripheral modules provide independent bandwidth.
+
+The split domains provide additional independently schedulable channels.
+
+The CMFC provides parallel switching, buffering and aggregation.
+
+The photonic substrate potentially provides a scalable physical communication layer.
+
+The ultimate performance limit therefore becomes not simply how fast an individual memory chip can operate, but:
+
+How much independent memory traffic can the complete fabric sustain simultaneously?
+	​
+
+
+That is a measurable question—and therefore a strong basis for an actual proof of concept.
