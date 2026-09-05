@@ -1,0 +1,777 @@
+Proof of Concept: Multi-Fabric Cooperative GPU Architecture
+Working Name: MFCGA — Multi-Fabric Cooperative GPU Architecture
+1. Executive Summary
+
+The Multi-Fabric Cooperative GPU Architecture proposes a different approach to multi-GPU computing. Instead of attaching multiple identical GPUs to the same host and having them compete for shared bandwidth, duplicate large portions of memory, or repeatedly synchronize on the same workload, MFCGA assigns each GPU a semi-independent data path, local memory domain, and execution role.
+
+The central concept is simple:
+
+$$ \boxed{ \text{multiple GPUs} + \text{independent buses} + \text{independent memory domains} + \text{cooperative scheduling} } $$
+
+Rather than treating additional GPUs as copies of one another, MFCGA treats them as cooperating processors within a single graphics/compute subsystem.
+
+The proof of concept would test whether this arrangement can reduce memory contention, synchronization overhead, redundant processing, and host-mediated data movement while increasing sustained throughput.
+
+2. Core Hypothesis
+
+Traditional multi-GPU designs can encounter diminishing returns because adding another GPU also adds:
+
+synchronization requirements,
+duplicated resources,
+memory transfers,
+frame or task dependencies,
+host-to-device contention,
+inter-GPU communication overhead.
+
+MFCGA tests the hypothesis that:
+
+$$ \boxed{ \text{Partitioning both computation and data transport} > \text{partitioning computation alone} } $$
+
+In other words, the architecture does not merely create more execution units.
+
+It creates more independent routes for feeding those execution units.
+
+3. Baseline Architecture
+
+A simplified conventional multi-GPU configuration might look like:
+
+                    CPU / HOST
+                        │
+                  SHARED FABRIC
+                        │
+              ┌─────────┴─────────┐
+              │                   │
+              ▼                   ▼
+           GPU A                GPU B
+              │                   │
+           VRAM A              VRAM B
+
+Both GPUs may still depend heavily on:
+
+host memory
+PCIe bandwidth
+shared assets
+synchronization
+driver coordination
+
+MFCGA instead proposes:
+
+                         HOST
+                          │
+                  GLOBAL CONTROL FABRIC
+                          │
+          ┌───────────────┼───────────────┐
+          │               │               │
+          ▼               ▼               ▼
+       BUS A            BUS B            BUS C
+          │               │               │
+          ▼               ▼               ▼
+       GPU A            GPU B            GPU C
+          │               │               │
+       VRAM A          VRAM B           VRAM C
+          │               │               │
+          └───────────────┼───────────────┘
+                          │
+                 PEER COOPERATIVE FABRIC
+
+Each GPU is simultaneously:
+
+independent enough to avoid constant contention,
+connected enough to exchange intermediate results.
+4. GPU Roles
+
+The architecture supports several operating modes.
+
+Mode A — Spatial Workload Partitioning
+
+Each GPU handles a different portion of the same overall problem.
+
+For graphics:
+
+GPU A
+geometry + vertex processing
+
+GPU B
+lighting + ray traversal
+
+GPU C
+post-processing + denoising
+
+Conceptually:
+
+                   SCENE STATE
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+        GPU A        GPU B        GPU C
+      Geometry      Lighting     Post-FX
+          │            │            │
+          └────────────┼────────────┘
+                       ▼
+                   COMPOSITOR
+                       │
+                       ▼
+                  FINAL FRAME
+
+The GPUs process different aspects of the same scene rather than repeating the same full frame pipeline.
+
+5. Temporal Workload Partitioning
+
+The architecture could also stagger workload execution through time.
+
+Example:
+
+TIME ───────────────────────────────>
+
+GPU A:
+Frame 0 ───── Frame 3 ───── Frame 6
+
+GPU B:
+       Frame 1 ───── Frame 4 ───── Frame 7
+
+GPU C:
+              Frame 2 ───── Frame 5
+
+This resembles alternate-frame techniques, but MFCGA changes the underlying transport architecture by giving each GPU independent local data pathways.
+
+A more advanced implementation would avoid transmitting every full frame state to every GPU.
+
+6. Same-Data, Different-Function Mode
+
+This is one of the strongest versions of the concept.
+
+Each GPU sees the same high-level state but computes a different result.
+
+For example:
+
+                 WORLD STATE
+                     │
+          ┌──────────┼──────────┐
+          ▼          ▼          ▼
+       GPU A       GPU B       GPU C
+       render      physics     AI
+          │          │          │
+          └──────────┼──────────┘
+                     ▼
+                STATE MERGER
+
+The GPUs are not redundant.
+
+They are specialized peers.
+
+7. Data Subset Distribution
+
+MFCGA should avoid copying the entire working set to every GPU.
+
+Let:
+
+$$ D $$
+
+represent the complete dataset.
+
+Instead of:
+
+$$ GPU_A=D $$ $$ GPU_B=D $$ $$ GPU_C=D $$
+
+the architecture attempts:
+
+$$ GPU_A=D_A $$ $$ GPU_B=D_B $$ $$ GPU_C=D_C $$
+
+where:
+
+$$ D_A,D_B,D_C\subseteq D $$
+
+and only required shared information is duplicated.
+
+Example:
+
+GPU A
+---------
+meshes
+camera
+vertex buffers
+
+GPU B
+---------
+lights
+materials
+acceleration structures
+
+GPU C
+---------
+motion vectors
+AI buffers
+temporal history
+
+This lowers memory duplication and bus traffic.
+
+8. Local VRAM Ownership
+
+Each GPU receives a primary ownership domain.
+
+GPU A
+  │
+  └──── VRAM A
+        geometry ownership
+
+GPU B
+  │
+  └──── VRAM B
+        lighting ownership
+
+GPU C
+  │
+  └──── VRAM C
+        simulation ownership
+
+Other GPUs can request data through the peer fabric.
+
+This produces:
+
+LOCAL READ
+GPU A → VRAM A
+
+whenever possible instead of:
+
+GPU A
+ ↓
+HOST
+ ↓
+GPU B
+ ↓
+VRAM B
+9. Peer-to-Peer Fabric
+
+A central part of MFCGA is direct communication between GPUs.
+
+        GPU A ═════════ GPU B
+          ╲             ╱
+           ╲           ╱
+            ╲         ╱
+              GPU C
+
+The peer fabric should support:
+
+direct memory transfers,
+queue messaging,
+shared synchronization primitives,
+ownership migration,
+remote reads,
+broadcast state updates.
+
+Large transfers should preferably bypass host RAM.
+
+10. Command Queues
+
+Rather than forcing every GPU to inspect a shared workload pool, each domain can receive explicit commands.
+
+Example:
+
+task = {
+    "target": "GPU_B",
+    "opcode": "LIGHTING_PASS",
+    "input": "scene_state_1042",
+    "output": "lighting_buffer_1042",
+    "dependencies": [
+        "geometry_buffer_1042"
+    ]
+}
+
+This supports asynchronous execution.
+
+11. Producer / Consumer Pipeline
+
+The GPUs can form an execution pipeline.
+
+GPU A
+GEOMETRY
+   │
+   ▼
+GPU B
+LIGHTING
+   │
+   ▼
+GPU C
+POST PROCESS
+   │
+   ▼
+DISPLAY
+
+But instead of waiting for one frame to completely finish:
+
+TIME ─────────────────────────────────>
+
+GPU A:
+Geom 1 ─ Geom 2 ─ Geom 3 ─ Geom 4
+
+GPU B:
+         Light 1 ─ Light 2 ─ Light 3
+
+GPU C:
+                   Post 1 ─ Post 2
+
+Several frames exist in different stages simultaneously.
+
+12. Cooperative Parallel Mode
+
+The same computational problem can also be divided across GPUs.
+
+For matrix workload:
+
+$$ M= \begin{bmatrix} M_1\\ M_2\\ M_3 \end{bmatrix} $$
+
+then:
+
+GPU A → M1
+GPU B → M2
+GPU C → M3
+
+The results are merged afterward.
+
+This is conventional data parallelism, but the important MFCGA distinction remains:
+
+each GPU has its own transport and memory domain.
+
+13. Speculative GPU Mode
+
+A more experimental mode allows GPUs to process different temporal states.
+
+GPU A
+CURRENT STATE
+S(t)
+
+GPU B
+PREDICTED STATE
+S(t+1)
+
+GPU C
+PREDICTED STATE
+S(t+2)
+
+Represented as:
+
+$$ GPU_A=S_t $$ $$ GPU_B=\hat S_{t+1} $$ $$ GPU_C=\hat S_{t+2} $$
+
+When the actual future state appears, the prediction is compared with reality.
+
+If prediction error is small, much of the next computation may already exist.
+
+14. Speculation Validation
+
+The architecture would need a confidence mechanism.
+
+Let:
+
+$$ E=|\hat S-S| $$
+
+If:
+
+$$ E<T $$
+
+where \(T\) is an acceptable error threshold, the speculative result can be retained.
+
+Otherwise:
+
+prediction invalid
+       │
+       ▼
+discard result
+       │
+       ▼
+recompute
+
+This could be useful for workloads with strong temporal coherence.
+
+15. AI Workload Example
+
+The architecture could map naturally onto AI inference.
+
+GPU A
+PRIMARY MODEL
+generate candidates
+
+        ↓
+
+GPU B
+EVALUATOR
+score / rerank
+
+        ↓
+
+GPU C
+MEMORY / CONTEXT
+retrieve supporting state
+
+Or all three could perform competing inference paths:
+
+             PROMPT
+               │
+       ┌───────┼───────┐
+       ▼       ▼       ▼
+     GPU A   GPU B   GPU C
+      path1   path2    path3
+       │       │       │
+       └───────┼───────┘
+               ▼
+             ARBITER
+
+This is especially compatible with the NDW concept because the processors could independently explore decision branches.
+
+16. NDW GPU Mapping
+
+The Narrative Decision Weave could use:
+
+GPU A
+CURRENT STATE ANALYSIS
+
+GPU B
+COUNTERFACTUAL GENERATION
+
+GPU C
+MEMORY / CONSEQUENCE EVALUATION
+
+For example:
+
+                 STATE
+                   │
+                   ▼
+               GPU A
+              ANALYZE
+                   │
+          ┌────────┼────────┐
+          ▼        ▼        ▼
+          A        B        C
+          │        │        │
+          └─────► GPU B ◄───┘
+               SIMULATE
+                   │
+                   ▼
+                GPU C
+             RETRIEVE MEMORY
+                   │
+                   ▼
+                ARBITER
+
+Now different GPUs literally represent different parts of the decision process.
+
+17. Independent Bus Architecture
+
+The physical target would look approximately like:
+
+                      HOST CPU
+                         │
+                   CONTROL LINK
+                         │
+       ┌─────────────────┼─────────────────┐
+       │                 │                 │
+       ▼                 ▼                 ▼
+   FABRIC A           FABRIC B          FABRIC C
+       │                 │                 │
+     GPU A             GPU B             GPU C
+       │                 │                 │
+     VRAM A            VRAM B            VRAM C
+       │                 │                 │
+       └─────────────────┼─────────────────┘
+                         │
+                GPU PEER SWITCH
+
+Each path should have measurable independent bandwidth.
+
+18. Proof-of-Concept Hardware
+
+A first-generation POC does not require manufacturing custom silicon.
+
+It could use:
+
+Host PC
++
+3 GPUs
++
+PCIe lanes
++
+peer-to-peer transfers
++
+software scheduler
+
+The system would emulate the proposed architecture.
+
+Three processes could each own one GPU.
+
+19. Software Architecture
+
+The test software could contain:
+
+HOST CONTROLLER
+      │
+      ▼
+TASK GRAPH
+      │
+ ┌────┼────┐
+ ▼    ▼    ▼
+A     B    C
+ │    │    │
+ ▼    ▼    ▼
+GPU0 GPU1 GPU2
+ │    │    │
+Q0   Q1   Q2
+
+Each GPU gets its own work queue.
+
+20. Scheduler
+
+The scheduler should classify workloads.
+
+Pseudo-code:
+
+if task.type == "geometry":
+    send(task, gpu_a)
+
+elif task.type == "lighting":
+    send(task, gpu_b)
+
+elif task.type == "simulation":
+    send(task, gpu_c)
+
+More sophisticated scheduling could use:
+
+score = (
+    gpu_load
+    + memory_pressure
+    + transfer_cost
+    + dependency_cost
+)
+
+and send work to the GPU with the lowest expected completion time.
+
+21. POC Test Configurations
+
+The benchmark should compare at least four modes.
+
+Configuration 1 — Single GPU
+GPU A
+
+Baseline.
+
+Configuration 2 — Conventional Multi-GPU
+GPU A + GPU B + GPU C
+shared workload strategy
+Configuration 3 — Independent-Bus Multi-GPU
+GPU A → workload A
+GPU B → workload B
+GPU C → workload C
+Configuration 4 — Cooperative Pipeline
+GPU A → stage A
+GPU B → stage B
+GPU C → stage C
+22. Benchmark Workloads
+
+Recommended tests:
+
+matrix multiplication
+ray tracing
+path tracing
+video encoding
+image denoising
+physics simulation
+AI inference
+large tensor operations
+3D rendering
+NDW branch simulation
+
+The most important benchmark is a mixed workload containing:
+
+rendering
++
+AI
++
+simulation
++
+memory transfers
+
+because this is where resource specialization should provide the greatest advantage.
+
+23. Metrics
+
+Measure:
+
+$$ FPS $$ $$ Tasks/sec $$ $$ GB/sec $$ $$ Latency $$ $$ GPU utilization $$ $$ VRAM usage $$ $$ Inter-GPU traffic $$ $$ Host-memory traffic $$ $$ Synchronization overhead $$ $$ Power/Task $$
+
+A particularly useful metric is:
+
+$$ \text{Useful Compute Efficiency} = \frac{\text{time performing useful kernels}} {\text{total GPU active time}} $$
+24. Bottleneck Model
+
+Performance can be represented approximately as:
+
+$$ T= T_{compute} + T_{transfer} + T_{sync} + T_{stall} $$
+
+MFCGA primarily attempts to reduce:
+
+$$ T_{transfer} $$ $$ T_{sync} $$
+
+and
+
+$$ T_{stall} $$
+
+while allowing:
+
+$$ T_{compute,A} $$ $$ T_{compute,B} $$
+
+and:
+
+$$ T_{compute,C} $$
+
+to overlap.
+
+25. Expected Scaling
+
+Perfect three-GPU scaling would give:
+
+$$ 3\times $$
+
+but real performance will be lower.
+
+A realistic early target might be:
+
+$$ 1.5\times-2.5\times $$
+
+depending heavily on workload independence.
+
+The objective should not initially be "prove 3×."
+
+The objective should be:
+
+Demonstrate that independent fabrics and functional workload partitioning scale more efficiently than simply duplicating GPU execution.
+
+26. Key Failure Conditions
+
+The concept could lose performance if:
+
+GPU workloads depend too heavily on one another
+
+or:
+
+peer-transfer latency is too high
+
+or:
+
+all GPUs constantly access identical memory
+
+or:
+
+synchronization happens too frequently
+
+or:
+
+one GPU becomes the pipeline bottleneck
+
+So the scheduler should try to maximize:
+
+$$ \frac{\text{independent computation}} {\text{communication}} $$
+27. Adaptive Load Balancing
+
+The scheduler could continuously measure workload time.
+
+Example:
+
+GPU A = 4 ms
+GPU B = 11 ms
+GPU C = 5 ms
+
+GPU B is the bottleneck.
+
+Some of B's workload could therefore migrate:
+
+GPU B workload
+     │
+ ┌───┴───┐
+ ▼       ▼
+GPU B   GPU C
+
+The architecture becomes self-balancing.
+
+28. Shared Address Layer
+
+A more advanced implementation could expose a logical memory map:
+
+0x0000–0x3FFF → VRAM A
+0x4000–0x7FFF → VRAM B
+0x8000–0xBFFF → VRAM C
+
+Software sees:
+
+Unified GPU Memory Space
+
+while the fabric tracks physical ownership.
+
+That would make it easier for programs to interact with the system as if it were one giant GPU.
+
+29. Logical Super-GPU
+
+From software's perspective:
+
+Application
+    │
+    ▼
+MFCGA Driver
+    │
+    ▼
+"ONE GPU"
+
+Underneath:
+
+               LOGICAL GPU
+                    │
+       ┌────────────┼────────────┐
+       ▼            ▼            ▼
+     GPU A        GPU B        GPU C
+
+This is potentially one of the strongest implementations because existing applications wouldn't necessarily need to manually manage three independent GPUs.
+
+30. POC Success Criteria
+
+A successful proof of concept should demonstrate at least one of the following:
+
+Higher throughput than conventional multi-GPU execution.
+Lower host-memory traffic.
+Lower synchronization overhead.
+Better aggregate GPU utilization.
+Better performance per watt.
+Less redundant VRAM usage.
+Better mixed-workload performance.
+Successful asynchronous pipeline execution.
+
+A particularly strong result would be:
+
+$$ \boxed{ \text{same hardware} + \text{different interconnect/scheduling strategy} = \text{significantly higher useful throughput} } $$
+
+That isolates the architecture itself as the source of the improvement.
+
+31. Proposed Prototype Name
+
+I'd call this version:
+
+Tri-Fabric Cooperative Graphics Architecture — TFCGA
+
+with the broader family being:
+
+Multi-Fabric Cooperative Compute — MFCC
+
+That gives you:
+
+MFCC
+│
+├── TFCP
+│   Tri-Fabric Cooperative Processor
+│
+├── TFCGA
+│   Tri-Fabric Cooperative Graphics Architecture
+│
+└── NDW Accelerator
+    Narrative Decision Weave processing architecture
+
+The core design principle across all three is the same:
+
+$$ \boxed{ \text{Don't merely multiply processors.} } $$ $$ \boxed{ \text{Multiply independent computation AND the paths that keep those processors fed.} } $$
+
+That is the part worth proving experimentally.
